@@ -6,14 +6,13 @@ import os
 import pandas as pd
 import PyPDF2
 import base64
+import io
+from PIL import Image
+
 PROFILE_NAME = os.environ.get('AWS_PROFILE', 'edn')
 
 def get_boto3_client(service_name, region_name='us-east-1', profile_name='edn'):
-    """
-    Retorna um cliente do serviço AWS usando IAM Role da instância.
-    """
     try:
-        # Primeiro tenta usar o IAM Role (modo de produção)
         session = boto3.Session(profile_name=profile_name,region_name=region_name)
         client = session.client(service_name)
         
@@ -26,7 +25,6 @@ def get_boto3_client(service_name, region_name='us-east-1', profile_name='edn'):
         return None
 
 def read_pdf(file_path):
-    """Lê o conteúdo de um arquivo PDF e retorna como string."""
     try:
         with open(file_path, 'rb') as file:
             reader = PyPDF2.PdfReader(file)
@@ -38,7 +36,6 @@ def read_pdf(file_path):
         return f"Erro ao ler PDF: {str(e)}"
 
 def read_txt(file_path):
-    """Lê o conteúdo de um arquivo TXT e retorna como string."""
     try:
         with open(file_path, 'r') as file:
             return file.read()
@@ -46,22 +43,42 @@ def read_txt(file_path):
         return f"Erro ao ler TXT: {str(e)}"
 
 def read_csv(file_path):
-    """Lê o conteúdo de um arquivo CSV e retorna como string."""
     try:
         df = pd.read_csv(file_path)
         return df.to_string()
     except Exception as e:
         return f"Erro ao ler CSV: {str(e)}"
+
+def convert_image_to_base64(uploaded_file):
+    try:
+        uploaded_file.seek(0)
+        image_bytes = uploaded_file.read()
+        return base64.b64encode(image_bytes).decode('utf-8')
+    except Exception as e:
+        print(f"Erro ao converter imagem para base64: {str(e)}")
+        return None
+
+def process_image_file(uploaded_file):
+    try:
+        uploaded_file.seek(0)
+        img = Image.open(uploaded_file)
+        
+        if img.mode == 'RGBA':
+            img = img.convert('RGB')
+        
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format='JPEG', quality=85)
+        img_buffer.seek(0)
+        
+        return base64.b64encode(img_buffer.getvalue()).decode('utf-8'), 'image/jpeg'
+    except Exception as e:
+        print(f"Erro ao processar imagem: {str(e)}")
+        return None, None
     
 def format_context(context, source="Contexto Adicional"):
-    """Formata o contexto para ser adicionado ao prompt."""
     return f"\n\n{source}:\n{context}\n\n"
 
-#ALTERAR
 def generate_chat_prompt(user_message, conversation_history=None, context=""):
-    """
-    Gera um prompt de chat completo com histórico de conversa e contexto opcional.
-    """
     system_prompt = """
     Você é atendente da S.O.S Pets. Nosso objetivo é ajudar a encontrar animais abandonados para estimular a doação dos animais abandonados.
 
@@ -95,11 +112,7 @@ def generate_chat_prompt(user_message, conversation_history=None, context=""):
     
     return full_prompt
 
-#ALTERAR
 def invoke_bedrock_model(prompt, inference_profile_arn, model_params=None):
-    """
-    Invoca um modelo no Amazon Bedrock usando um Inference Profile.
-    """
     if model_params is None:
         model_params = {
         "temperature": 1.0,
@@ -138,7 +151,7 @@ def invoke_bedrock_model(prompt, inference_profile_arn, model_params=None):
     })
 
         response = bedrock_runtime.invoke_model(
-        modelId=inference_profile_arn,  # Usando o ARN do Inference Profile
+        modelId=inference_profile_arn,
         body=body,
         contentType="application/json",
         accept="application/json"
@@ -160,8 +173,8 @@ def invoke_bedrock_model(prompt, inference_profile_arn, model_params=None):
             "answer": f"Ocorreu um erro ao processar sua solicitação: {str(e)}. Por favor, tente novamente.",
             "sessionId": str(uuid.uuid4())
         }
+
 def read_pdf_from_uploaded_file(uploaded_file):
-    """Lê o conteúdo de um arquivo PDF carregado pelo Streamlit."""
     try:
         import io
         from PyPDF2 import PdfReader
@@ -176,14 +189,12 @@ def read_pdf_from_uploaded_file(uploaded_file):
         return f"Erro ao ler PDF: {str(e)}"
     
 def read_txt_from_uploaded_file(uploaded_file):
-    """Lê o conteúdo de um arquivo TXT carregado pelo Streamlit."""
     try:
         return uploaded_file.getvalue().decode("utf-8")
     except Exception as e:
         return f"Erro ao ler TXT: {str(e)}"
 
 def read_csv_from_uploaded_file(uploaded_file):
-    """Lê o conteúdo de um arquivo CSV carregado pelo Streamlit."""
     try:
         import pandas as pd
         import io

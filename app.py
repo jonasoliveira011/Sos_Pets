@@ -11,17 +11,16 @@ import base64
 import os
 from functions import (
     generate_chat_prompt, format_context, 
-    read_pdf_from_uploaded_file, read_txt_from_uploaded_file, read_csv_from_uploaded_file
+    read_pdf_from_uploaded_file, read_txt_from_uploaded_file, read_csv_from_uploaded_file,
+    convert_image_to_base64, process_image_file
 )
 PROFILE_NAME = os.environ.get("AWS_PROFILE", "edn")
 
 INFERENCE_PROFILE_ARN = "arn:aws:bedrock:us-east-1:851614451056:inference-profile/us.anthropic.claude-sonnet-4-20250514-v1:0"
 
 def add_javascript():
-    """Adiciona JavaScript para melhorar a interação do usuário com o chat"""
     js_code = """
     <script>
-    // Fazer com que a tecla Enter submeta o formulário
     document.addEventListener('DOMContentLoaded', function() {
         setTimeout(function() {
             const textarea = document.querySelector('textarea');
@@ -36,13 +35,12 @@ def add_javascript():
                     }
                 });
             }
-        }, 1000); // Pequeno atraso para garantir que os elementos foram carregados
+        }, 1000);
     });
     </script>
     """
     st.components.v1.html(js_code, height=0)
 
-#alterar
 st.set_page_config(
    page_title="Sos Pets",
    page_icon="sos_pets.jpg",
@@ -53,17 +51,10 @@ st.set_page_config(
 logo_path = "sos_pets.jpg"
 
 def preprocess_user_message(message):
-    """
-    Função simples de pré-processamento da mensagem do usuário
-    """
     return message
 
 def get_boto3_client(service_name, region_name='us-east-1', profile_name='edn'):
-    """
-    Retorna um cliente do serviço AWS usando IAM Role da instância.
-    """
     try:
-        # Primeiro tenta usar o IAM Role (modo de produção)
         session = boto3.Session(profile_name=profile_name, region_name=region_name)
         client = session.client(service_name)
         
@@ -75,12 +66,6 @@ def get_boto3_client(service_name, region_name='us-east-1', profile_name='edn'):
         print("ATENÇÃO: Verifique se o IAM Role está corretamente associado à instância EC2.")
         return None
 
-def convert_image_to_base64(uploaded_file):
-    try:
-        return base64.b64encode(uploaded_file.read()).decode('utf-8')
-    except Exception as e:
-        return None
-    
 def query_bedrock(message, session_id="", model_params=None, context="", conversation_history=None, attached_file=None):
     if model_params is None:
         model_params = {
@@ -101,17 +86,16 @@ def query_bedrock(message, session_id="", model_params=None, context="", convers
     try:
         prompt = generate_chat_prompt(user_message=message, conversation_history=conversation_history, context=context)
 
-        # montar o content com texto e imagem (se houver)
         content_parts = []
 
         if attached_file and attached_file.type.startswith("image/"):
-            image_base64 = convert_image_to_base64(attached_file)
+            image_base64, media_type = process_image_file(attached_file)
             if image_base64:
                 content_parts.append({
                     "type": "image",
                     "source": {
                         "type": "base64",
-                        "media_type": attached_file.type,
+                        "media_type": media_type,
                         "data": image_base64
                     }
                 })
@@ -160,11 +144,9 @@ def query_bedrock(message, session_id="", model_params=None, context="", convers
             "sessionId": session_id or str(uuid.uuid4())
         }
 
-def check_password():
-    """Returns `True` if the user had the correct password."""
 
+def check_password():
     def password_entered():
-        """Checks whether a password entered by the user is correct."""
         print(f"DEBUG LOGIN: Tentativa de login - Usuário: '{st.session_state['username']}', Senha: '{st.session_state['password']}'")
         
         if hmac.compare_digest(st.session_state["username"].strip(), "grupo1") and \
@@ -257,7 +239,6 @@ def check_password():
         return True
 
 def logout():
-    """Faz logout removendo o cookie de autenticação"""
     if "auth_cookie" in st.session_state:
         del st.session_state["auth_cookie"]
     st.session_state["password_correct"] = False
@@ -265,9 +246,6 @@ def logout():
     st.rerun()
 
 def get_rag_context():
-    """
-    Obtém e formata o contexto RAG.    
-    """
     if st.session_state.get('use_rag', False):
         if st.session_state.rag_source == "Arquivo":
             if st.session_state.uploaded_file is not None:
@@ -287,7 +265,6 @@ def get_rag_context():
     return ""
 
 def handle_message():
-    """Processa o envio de uma mensagem do usuário"""
     if st.session_state.user_input.strip():
         user_message = st.session_state.user_input.strip()
         
@@ -317,10 +294,16 @@ def handle_message():
                     file_content = read_csv_from_uploaded_file(attached_file)
                 elif file_extension in ['doc', 'docx']:
                     file_content = "Arquivo do Word anexado (processamento de conteúdo não disponível)"
+                elif file_extension in ['jpg', 'jpeg', 'png']:
+                    file_info = f"\n[Imagem anexada: {attached_file.name}]"
                 
-                file_info = f"\n[Arquivo anexado: {attached_file.name}]"
-                
-                user_message_with_attachment = f"{user_message}{file_info}"
+                if file_info:
+                    user_message_with_attachment = f"{user_message}{file_info}"
+                elif file_content:
+                    file_info = f"\n[Arquivo anexado: {attached_file.name}]"
+                    user_message_with_attachment = f"{user_message}{file_info}"
+                else:
+                    user_message_with_attachment = user_message
                 
                 st.session_state.messages.append({"role": "user", "content": user_message_with_attachment, "time": timestamp})
             else:
@@ -337,7 +320,7 @@ def handle_message():
                     
                     rag_context = get_rag_context()
                     
-                    if file_content:
+                    if file_content and not file_extension in ['jpg', 'jpeg', 'png']:
                         file_context = format_context(file_content, f"Conteúdo do arquivo anexado ({attached_file.name})")
                         if rag_context:
                             combined_context = f"{rag_context}\n{file_context}"
@@ -350,7 +333,8 @@ def handle_message():
                         user_message,
                         current_session_id,
                         context=combined_context,
-                        conversation_history=st.session_state.messages
+                        conversation_history=st.session_state.messages,
+                        attached_file=attached_file
                     )
                 
                 if result:
@@ -392,63 +376,7 @@ def handle_message():
         else:
             st.session_state.user_input = ""
 
-def add_javascript():
-    """Adiciona JavaScript para melhorar a interação do usuário com o chat"""
-    js_code = """
-    <script>
-    // Fazer com que a tecla Enter submeta o formulário
-    document.addEventListener('DOMContentLoaded', function() {
-        setTimeout(function() {
-            const textarea = document.querySelector('textarea');
-            if (textarea) {
-                textarea.addEventListener('keydown', function(e) {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        const sendButton = document.querySelector('button[data-testid="baseButton-secondary"]');
-                        if (sendButton) {
-                            sendButton.click();
-                        }
-                    }
-                });
-            }
-            
-            // Mostrar o nome do arquivo quando for anexado
-            const fileUploader = document.querySelector('.stFileUploader');
-            if (fileUploader) {
-                const observer = new MutationObserver(function(mutations) {
-                    mutations.forEach(function(mutation) {
-                        if (mutation.type === 'childList' && mutation.addedNodes.length) {
-                            const fileInfo = fileUploader.querySelector('.uploadedFileName');
-                            if (fileInfo) {
-                                const fileName = fileInfo.textContent.trim();
-                                // Adicionando uma mensagem ao lado do input
-                                const inputContainer = document.querySelector('.input-container');
-                                let fileStatus = document.querySelector('.file-attached');
-                                
-                                if (!fileStatus) {
-                                    fileStatus = document.createElement('div');
-                                    fileStatus.className = 'file-attached';
-                                    inputContainer.insertBefore(fileStatus, inputContainer.firstChild);
-                                }
-                                
-                                fileStatus.innerHTML = '<i class="fas fa-paperclip"></i> ' + fileName;
-                            }
-                        }
-                    });
-                });
-                
-                observer.observe(fileUploader, { childList: true, subtree: true });
-            }
-        }, 1000); // Pequeno atraso para garantir que os elementos foram carregados
-    });
-    </script>
-    """
-    st.components.v1.html(js_code, height=0)
-
 def extract_title_from_response(response_text):
-    """
-    Extrai um título resumido da primeira resposta do assistente.
-    """
     cleaned_text = re.sub(r'[\U00010000-\U0010ffff]|[\n\r]', '', response_text)
     
     sentences = re.split(r'\.', cleaned_text)
@@ -477,7 +405,6 @@ def extract_title_from_response(response_text):
     return title
 
 def regenerate_message(index):
-    """Regenera a resposta a uma mensagem específica"""
     if index < 0 or index >= len(st.session_state.messages) or st.session_state.messages[index]["role"] != "user":
         return
     
@@ -518,7 +445,6 @@ def regenerate_message(index):
     st.rerun()
 
 def edit_message(index, new_content):
-    """Edita uma mensagem e regenera as respostas subsequentes"""
     if index < 0 or index >= len(st.session_state.messages):
         return
     
@@ -532,7 +458,6 @@ def edit_message(index, new_content):
     st.rerun()
 
 def create_new_chat():
-    """Cria uma nova conversa"""
     st.session_state.session_id = ""
     st.session_state.messages = []
     st.session_state.chat_title = f"Nova Conversa ({datetime.now().strftime('%d/%m/%Y')})"
@@ -546,7 +471,6 @@ def create_new_chat():
     st.session_state.current_chat_index = len(st.session_state.chat_history) - 1
 
 def load_chat(index):
-    """Carrega uma conversa existente"""
     st.session_state.current_chat_index = index
     chat = st.session_state.chat_history[index]
     st.session_state.session_id = chat["id"]
@@ -555,7 +479,6 @@ def load_chat(index):
     st.rerun()
 
 def delete_chat(index):
-    """Exclui uma conversa"""
     if len(st.session_state.chat_history) > index:
         st.session_state.chat_history.pop(index)
         
@@ -568,7 +491,6 @@ def delete_chat(index):
             load_chat(st.session_state.current_chat_index)
 
 def rename_chat():
-    """Renomeia uma conversa existente"""
     if st.session_state.new_chat_title.strip():
         index = st.session_state.current_chat_index
         st.session_state.chat_history[index]["title"] = st.session_state.new_chat_title
@@ -579,14 +501,12 @@ def rename_chat():
 
 st.markdown("""
     <style>
-    /* Estilo Geral */
     .main .block-container {
         padding-top: 1rem;
         padding-bottom: 0;
         max-width: 1200px;
     }
     
-    /* Cabeçalho */
     .header {
         position: fixed;
         top: 0;
@@ -598,7 +518,6 @@ st.markdown("""
         border-bottom: 1px solid #e6e6e6;
     }
     
-    /* Mensagens */
     .chat-message {
         padding: 1rem;
         border-radius: 0.5rem;
@@ -627,7 +546,6 @@ st.markdown("""
         align-self: flex-end;
     }
     
-    /* Entrada de mensagem */
     .input-container {
         position: fixed;
         bottom: 0;
@@ -641,12 +559,10 @@ st.markdown("""
         z-index: 998;
     }
     
-    /* Sidebar */
     .sidebar .sidebar-content {
         background-color: #f8f9fa;
     }
     
-    /* Botões */
     .primary-button {
         background-color: #4CAF50 !important;
         color: white !important;
@@ -663,7 +579,6 @@ st.markdown("""
         font-weight: 500;
     }
     
-    /* Message Actions */
     .message-actions {
         display: flex;
         gap: 5px;
@@ -685,7 +600,6 @@ st.markdown("""
         background-color: rgba(76, 175, 80, 0.1);
     }
     
-    /* Chat List */
     .chat-item {
         display: flex;
         align-items: center;
@@ -719,7 +633,6 @@ st.markdown("""
         color: #4CAF50;
     }
     
-    /* Custom Scrollbar */
     ::-webkit-scrollbar {
         width: 8px;
         height: 8px;
@@ -744,10 +657,8 @@ st.markdown("""
         font-size: 20px;
     }
     
-    /* Adicionando Font Awesome para o ícone */
     @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css');
     
-    /* Estilo para indicar quando um arquivo foi anexado */
     .file-attached {
         background-color: rgba(76, 175, 80, 0.1);
         border-radius: 4px;
@@ -763,18 +674,15 @@ st.markdown("""
         margin-right: 5px;
     }
     
-    /* Estilo para o botão de remover anexo */
     .remove-file {
         color: #f44336;
         cursor: pointer;
     }
     
-    /* Esconder elementos Streamlit */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
     .stDeployButton {display:none;}
     
-    /* Editing message */
     .edit-message-container {
         display: flex;
         flex-direction: column;
@@ -787,11 +695,18 @@ st.markdown("""
         justify-content: flex-end;
         gap: 5px;
     }
+    
+    .image-preview {
+        max-width: 200px;
+        max-height: 200px;
+        border-radius: 8px;
+        margin: 10px 0;
+        border: 1px solid #e6e6e6;
+    }
     </style>
 """, unsafe_allow_html=True)
 
 def handle_message_if_content():
-    """Verifica se há conteúdo antes de enviar e processa a mensagem"""
     if not hasattr(st.session_state, 'user_input'):
         return
         
@@ -805,7 +720,6 @@ def handle_message_if_content():
             handle_message_with_input(temp_input)
 
 def handle_message_with_input(user_input):
-    """Processa o envio de uma mensagem do usuário com input específico"""
     if user_input.strip():
         is_duplicate = False
         if len(st.session_state.messages) > 0:
@@ -922,7 +836,7 @@ if check_password():
         with col1:
             st.image(logo_path, width=50)
         with col2:
-            st.markdown('<h2 style="margin-top: 0;">DETETIVE PETS</h2>', unsafe_allow_html=True)
+            st.markdown('<h2 style="margin-top: 0;">SOS PETS</h2>', unsafe_allow_html=True)
         
         st.divider()
         
@@ -1000,8 +914,6 @@ if check_password():
         st.markdown("<div style='height: 120px;'></div>", unsafe_allow_html=True)
         
         st.markdown('<div class="input-container">', unsafe_allow_html=True)
-        
-        st.markdown('<div class="input-container">', unsafe_allow_html=True)
 
         col1, col2, col3 = st.columns([5, 1, 1])
 
@@ -1018,6 +930,8 @@ if check_password():
             if st.button("Enviar", key="send_button", use_container_width=True):
                 if st.session_state.user_input and st.session_state.user_input.strip():
                     handle_message()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
         
         with messages_container:
             for idx, message in enumerate(st.session_state.messages):
@@ -1041,7 +955,12 @@ if check_password():
                 
                 elif message["role"] == "user":
                     with st.chat_message("user"):
-                        st.write(message["content"])
+                        content_parts = message["content"].split("[Imagem anexada:")
+                        if len(content_parts) > 1:
+                            st.write(content_parts[0])
+                            st.markdown("📷 *Imagem anexada*")
+                        else:
+                            st.write(message["content"])
                         st.markdown(f"<div class='message-time'>{message['time']}</div>", unsafe_allow_html=True)
                         
                         st.markdown('<div class="message-actions">', unsafe_allow_html=True)
