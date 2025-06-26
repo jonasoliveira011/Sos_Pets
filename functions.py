@@ -5,7 +5,7 @@ from datetime import datetime
 import os
 import pandas as pd
 import PyPDF2
-
+import base64
 PROFILE_NAME = os.environ.get('AWS_PROFILE', 'edn')
 
 def get_boto3_client(service_name, region_name='us-east-1', profile_name='edn'):
@@ -14,7 +14,7 @@ def get_boto3_client(service_name, region_name='us-east-1', profile_name='edn'):
     """
     try:
         # Primeiro tenta usar o IAM Role (modo de produção)
-        session = boto3.Session(region_name=region_name)
+        session = boto3.Session(profile_name=profile_name,region_name=region_name)
         client = session.client(service_name)
         
         print(f"DEBUG: Usando IAM Role para acessar '{service_name}' na região '{region_name}'")
@@ -174,7 +174,7 @@ def read_pdf_from_uploaded_file(uploaded_file):
         return text
     except Exception as e:
         return f"Erro ao ler PDF: {str(e)}"
-
+    
 def read_txt_from_uploaded_file(uploaded_file):
     """Lê o conteúdo de um arquivo TXT carregado pelo Streamlit."""
     try:

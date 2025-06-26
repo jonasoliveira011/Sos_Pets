@@ -13,7 +13,7 @@ from functions import (
     generate_chat_prompt, format_context, 
     read_pdf_from_uploaded_file, read_txt_from_uploaded_file, read_csv_from_uploaded_file
 )
-PROFILE_NAME = os.environ.get("AWS_PROFILE", "")
+PROFILE_NAME = os.environ.get("AWS_PROFILE", "edn")
 
 INFERENCE_PROFILE_ARN = "arn:aws:bedrock:us-east-1:851614451056:inference-profile/us.anthropic.claude-sonnet-4-20250514-v1:0"
 
@@ -58,16 +58,16 @@ def preprocess_user_message(message):
     """
     return message
 
-def get_boto3_client(service_name, region_name='us-east-1', profile_name=''):
+def get_boto3_client(service_name, region_name='us-east-1', profile_name='edn'):
     """
     Retorna um cliente do serviço AWS usando IAM Role da instância.
     """
     try:
         # Primeiro tenta usar o IAM Role (modo de produção)
-        session = boto3.Session(region_name=region_name)
+        session = boto3.Session(profile_name=profile_name, region_name=region_name)
         client = session.client(service_name)
         
-        print(f"DEBUG: Usando IAM Role para acessar '{service_name}' na região '{region_name}'")
+        print(f"DEBUG: Usando o perfil '{profile_name}  para acessar '{service_name}' na região '{region_name}'")
         return client
         
     except Exception as e:
@@ -75,11 +75,13 @@ def get_boto3_client(service_name, region_name='us-east-1', profile_name=''):
         print("ATENÇÃO: Verifique se o IAM Role está corretamente associado à instância EC2.")
         return None
 
-def query_bedrock(message, session_id="", model_params=None, context="", conversation_history=None):
-    """
-    Envia uma mensagem para o Amazon Bedrock com parâmetros de modelo específicos.
-    """
-    #ALTERAR
+def convert_image_to_base64(uploaded_file):
+    try:
+        return base64.b64encode(uploaded_file.read()).decode('utf-8')
+    except Exception as e:
+        return None
+    
+def query_bedrock(message, session_id="", model_params=None, context="", conversation_history=None, attached_file=None):
     if model_params is None:
         model_params = {
             "temperature": 0.9,
@@ -88,20 +90,39 @@ def query_bedrock(message, session_id="", model_params=None, context="", convers
             "max_tokens": 800,
             "response_format": {"type": "text"}
         }
-    
+
     bedrock_runtime = get_boto3_client('bedrock-runtime')
-    
     if not bedrock_runtime:
         return {
             "answer": "Não foi possível conectar ao serviço Bedrock. Verifique suas credenciais.",
             "sessionId": session_id or str(uuid.uuid4())
         }
-    
+
     try:
         prompt = generate_chat_prompt(user_message=message, conversation_history=conversation_history, context=context)
-        
+
+        # montar o content com texto e imagem (se houver)
+        content_parts = []
+
+        if attached_file and attached_file.type.startswith("image/"):
+            image_base64 = convert_image_to_base64(attached_file)
+            if image_base64:
+                content_parts.append({
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": attached_file.type,
+                        "data": image_base64
+                    }
+                })
+
+        content_parts.append({
+            "type": "text",
+            "text": prompt
+        })
+
         body = json.dumps({
-            "anthropic_version": "bedrock-2025-05-14",
+            "anthropic_version": "bedrock-2023-05-31",
             "max_tokens": model_params["max_tokens"],
             "temperature": model_params["temperature"],
             "top_p": model_params["top_p"],
@@ -109,34 +130,29 @@ def query_bedrock(message, session_id="", model_params=None, context="", convers
             "messages": [
                 {
                     "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": prompt
-                        }
-                    ]
+                    "content": content_parts
                 }
             ]
         })
-        
+
         response = bedrock_runtime.invoke_model(
-        modelId=INFERENCE_PROFILE_ARN,
-        body=body,
-        contentType="application/json",
-        accept="application/json"
-    )
-        
+            modelId=INFERENCE_PROFILE_ARN,
+            body=body,
+            contentType="application/json",
+            accept="application/json"
+        )
+
         response_body = json.loads(response['body'].read())
         answer = response_body['content'][0]['text']
-        
+
         if not session_id:
             session_id = str(uuid.uuid4())
-        
+
         return {
             "answer": answer,
             "sessionId": session_id
         }
-        
+
     except Exception as e:
         print(f"ERRO: Falha na requisição ao Bedrock: {str(e)}")
         return {
@@ -994,7 +1010,7 @@ if check_password():
                 height=70, label_visibility="collapsed")
 
         with col2:
-            file_to_send = st.file_uploader("Anexar arquivo", type=["pdf", "txt", "csv", "doc", "docx", "xls", "xlsx"], 
+            file_to_send = st.file_uploader("Anexar arquivo", type=["pdf", "txt", "csv", "doc", "docx", "xls", "xlsx","png", "jpg", "jpeg"], 
                                         key="file_to_send", label_visibility="collapsed")
             st.markdown('<div class="attach-icon" title="Anexar arquivo"><i class="fas fa-paperclip"></i></div>', unsafe_allow_html=True)
 
