@@ -42,13 +42,13 @@ def add_javascript():
     st.components.v1.html(js_code, height=0)
 
 st.set_page_config(
-   page_title="Sos Pets",
-   page_icon="sos_pets.jpg",
+   page_title="SOS Pets",
+   page_icon="logo-fundopreto.png",
    layout="wide",
    initial_sidebar_state="expanded"
 )
 
-logo_path = "sos_pets.jpg"
+logo_path = "logo-fundopreto.png"
 
 def preprocess_user_message(message):
     return message
@@ -200,8 +200,9 @@ def check_password():
         st.markdown("""
             <style>
                 .stTextInput > div > div > input {
-                    background-color: #2196F3;
-                    color: #000000;
+                    background-color: #f0f2f6;
+                    color: #31333F;
+                    border: 1px solid #FF7043;
                 }
                 .login-form {
                     max-width: 400px;
@@ -209,7 +210,8 @@ def check_password():
                     padding: 2rem;
                     border-radius: 10px;
                     box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-                    background-color: white;
+                    background-color: transparent;
+                    text-align: center;
                 }
                 .login-title {
                     margin-bottom: 2rem;
@@ -220,10 +222,16 @@ def check_password():
                     width: 100%;
                     margin-top: 1rem;
                 }
+                div[data-testid="stImage"] img {
+                    display: block;
+                    margin-left: auto;
+                    margin-right: auto;
+                }
             </style>
         """, unsafe_allow_html=True)
 
         st.markdown('<div class="login-form">', unsafe_allow_html=True)
+        st.image(logo_path, width=150)
         st.markdown('<h1 class="login-title">Login</h1>', unsafe_allow_html=True)
         
         st.text_input("Usuário", key="username")
