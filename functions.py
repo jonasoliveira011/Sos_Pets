@@ -95,6 +95,7 @@ def generate_chat_prompt(user_message, conversation_history=None, context=""):
     PORTE DO ANIMAL 
 
     Pergunte uma coisa de cada vez. Seja interativo com emojis. Seja aberto, coloquial, use um tom amigável. Conduza o tutor a cuidar do animal até a doação.
+    Quando mandarem foto de algum animal silvestre, direcione o usuário a ligar para algum orgão ambiental especializado.
 
     Recolher descrição
     """

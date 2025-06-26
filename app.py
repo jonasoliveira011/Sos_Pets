@@ -930,7 +930,7 @@ if check_password():
                 height=70, label_visibility="collapsed")
 
         with col2:
-            file_to_send = st.file_uploader("Anexar arquivo", type=["pdf", "txt", "csv", "doc", "docx", "xls", "xlsx","png", "jpg", "jpeg"], 
+            file_to_send = st.file_uploader("Anexar arquivo", type=["png", "jpg", "jpeg"], 
                                         key="file_to_send", label_visibility="collapsed")
             st.markdown('<div class="attach-icon" title="Anexar arquivo"><i class="fas fa-paperclip"></i></div>', unsafe_allow_html=True)
 
